@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Push-To — Live Sky Align</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#040100;
+    --red-bright:#ff4b34;
+    --red-mid:#b23422;
+    --red-dim:#5c1b12;
+    --red-faint:#2a0d08;
+    --red-line:#7a2417;
+    --font: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:var(--font); color:var(--red-bright); user-select:none;}
+
+  #app{position:fixed;inset:0;background:#000;}
+
+  /* ---------- camera + overlay ---------- */
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    filter: brightness(3) contrast(1.15);}
+  #overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none;}
+
+  #startScreen{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:#000;z-index:50;padding:24px;text-align:center;}
+  #startScreen h1{font-size:15px;letter-spacing:.14em;font-weight:500;text-transform:uppercase;
+    color:var(--red-bright);margin:0;}
+  #startScreen p{font-size:12px;color:var(--red-mid);max-width:280px;line-height:1.6;margin:0;}
+  .reticleMark{width:56px;height:56px;border:1px solid var(--red-mid);border-radius:50%;position:relative;opacity:.8;}
+  .reticleMark::before,.reticleMark::after{content:"";position:absolute;background:var(--red-mid);}
+  .reticleMark::before{left:50%;top:-10px;width:1px;height:20px;transform:translateX(-50%);}
+  .reticleMark::after{top:50%;left:-10px;height:1px;width:20px;transform:translateY(-50%);}
+
+  /* ---------- top status bar ---------- */
+  #topbar{position:absolute;top:0;left:0;right:0;z-index:20;
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    background:linear-gradient(to bottom, rgba(0,0,0,.75), rgba(0,0,0,0));
+    pointer-events:none;}
+  .stat-label{font-size:9px;letter-spacing:.12em;color:var(--red-dim);text-transform:uppercase;}
+  .stat-value{font-size:13px;color:var(--red-bright);font-weight:500;}
+  #centerReadout{text-align:left;}
+  #calibState{text-align:right;}
+  #calibState.ok .stat-value{color:var(--red-bright);}
+  #calibState.no .stat-value{color:var(--red-dim);}
+
+  /* ---------- reticle ---------- */
+  .reticle{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    pointer-events:none;z-index:5;}
+
+  /* ---------- bottom sheet ---------- */
+  #sheet{position:absolute;left:0;right:0;bottom:0;z-index:30;
+    background:rgba(5,1,0,.92);border-top:1px solid var(--red-faint);
+    padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 10px);
+    backdrop-filter: blur(2px);
+    max-height:56vh; display:flex; flex-direction:column;}
+  #tabs{display:flex;gap:6px;margin-bottom:10px;}
+  .tabBtn{flex:1;padding:8px 4px;font-family:var(--font);font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;background:transparent;border:1px solid var(--red-dim);
+    color:var(--red-dim);border-radius:3px;}
+  .tabBtn.active{color:var(--red-bright);border-color:var(--red-bright);}
+  .panel{display:none; overflow-y:auto;}
+  .panel.active{display:block;}
+  .hint{font-size:11px;color:var(--red-mid);line-height:1.5;margin:0 0 10px;}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+  .btn{font-family:var(--font);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--red-faint);border:1px solid var(--red-dim);color:var(--red-bright);
+    padding:9px 12px;border-radius:3px;flex:1;text-align:center;}
+  .btn.primary{background:var(--red-dim);border-color:var(--red-bright);}
+  .btn:disabled{opacity:.35;}
+  input[type=text],input[type=search]{font-family:var(--font);background:#0a0302;
+    border:1px solid var(--red-dim);color:var(--red-bright);padding:9px 10px;border-radius:3px;
+    width:100%;font-size:13px;}
+  input[type=range]{width:100%;accent-color:var(--red-mid);}
+  .resultsList{margin-top:6px;max-height:150px;overflow-y:auto;}
+  .resultItem{padding:8px 10px;border-bottom:1px solid var(--red-faint);font-size:12px;
+    display:flex;justify-content:space-between;color:var(--red-bright);}
+  .resultItem .sub{color:var(--red-dim);font-size:10px;}
+  .pointBadge{display:inline-flex;align-items:center;justify-content:center;
+    width:20px;height:20px;border-radius:50%;border:1px solid var(--red-bright);
+    font-size:11px;margin-right:6px;flex-shrink:0;}
+  .settingRow{display:flex;justify-content:space-between;font-size:11px;color:var(--red-mid);
+    margin-bottom:2px;}
+  #targetSummary{border:1px solid var(--red-faint);padding:10px;border-radius:4px;margin-top:8px;}
+  #targetSummary .big{font-size:16px;color:var(--red-bright);}
+  #targetSummary .dir{font-size:12px;color:var(--red-mid);margin-top:4px;}
+  .clearLink{font-size:10px;color:var(--red-dim);text-decoration:underline;text-align:right;}
+
+  ::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-thumb{background:var(--red-dim);}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="startScreen">
+    <div class="reticleMark"></div>
+    <h1>Push-To / Live Align</h1>
+    <p>Mount your phone on the eyepiece adapter, then tap start. You'll align on two known
+       stars, then pick a target to get a live pointing arrow.</p>
+    <button class="btn primary" id="startBtn" style="max-width:220px;">Start Camera</button>
+    <p id="startErr" style="color:var(--red-bright);display:none;"></p>
+  </div>
+
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+
+  <div id="topbar">
+    <div id="centerReadout">
+      <div class="stat-label">Field Center</div>
+      <div class="stat-value" id="centerVal">— · —</div>
+    </div>
+    <div id="calibState" class="no">
+      <div class="stat-label">Calibration</div>
+      <div class="stat-value" id="calibVal">Not aligned</div>
+    </div>
+  </div>
+
+  <div id="sheet">
+    <div id="tabs">
+      <button class="tabBtn active" data-tab="align">Align</button>
+      <button class="tabBtn" data-tab="pushto">Push-To</button>
+      <button class="tabBtn" data-tab="detect">Detect</button>
+    </div>
+
+    <div class="panel active" id="panel-align">
+      <p class="hint" id="alignHint">Tap a bright star in the live view, then tell us which
+        one it is. Repeat for a second star to calibrate.</p>
+      <div id="alignPoints"></div>
+      <input type="text" id="starSearch" placeholder="Search star name…" style="display:none;">
+      <div class="resultsList" id="starResults"></div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" id="recalBtn">Recalibrate</button>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-pushto">
+      <p class="hint">Search a star or Messier object to get a live pointing direction from
+        your current field center.</p>
+      <input type="search" id="targetSearch" placeholder="Search target (e.g. M13, Vega)…">
+      <div class="resultsList" id="targetResults"></div>
+      <div id="targetSummary" style="display:none;"></div>
+    </div>
+
+    <div class="panel" id="panel-detect">
+      <div class="settingRow"><span>Brightness boost</span><span id="gainVal">3.0×</span></div>
+      <input type="range" id="gainSlider" min="1" max="10" step="0.5" value="3">
+      <p class="hint" style="margin:4px 0 12px;">Phone cameras auto-expose for daylight, so a
+        live view of the night sky often looks solid black even when stars are there. Raise
+        this until you can actually see stars on screen — it digitally amplifies the feed
+        (adds visible noise/grain at high values, that's normal).</p>
+      <div class="settingRow"><span>Detection sensitivity</span><span id="threshVal">80</span></div>
+      <input type="range" id="threshSlider" min="30" max="250" value="80">
+      <div class="settingRow" style="margin-top:10px;"><span>Show detected stars</span>
+        <input type="checkbox" id="showBlobs" checked></div>
+      <div class="settingRow"><span>Detected this frame</span><span id="blobCount">0</span></div>
+      <p class="hint" style="margin-top:12px;">Lower sensitivity picks up more (fainter, noisier)
+        points; raise it if the view is cluttered with false detections. If nothing is detected
+        at all, raise Brightness boost first — sensitivity can't find stars the camera isn't
+        capturing.</p>
+      <p class="hint" id="sanityCheck" style="margin-top:12px;color:var(--red-mid);">Quick test:
+        point at the Moon or brightest star you can find first — if that doesn't show up even
+        near max boost, the camera itself isn't gathering enough light through the eyepiece
+        (try a lower-power/wider eyepiece, which passes more light).</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const STARS = [["Sirius",101.287155,-16.716116,-1.45],["Canopus",95.987958,-52.695661,-0.62],["Arcturus",213.9153,19.182409,-0.05],["Rigil Kentaurus",219.902066,-60.833975,-0.01],["Vega",279.234735,38.783689,0.03],["Capella",79.172328,45.997991,0.08],["Rigel",78.634467,-8.201638,0.18],["Procyon",114.825493,5.224993,0.4],["Achernar",24.428523,-57.236753,0.45],["Betelgeuse",88.792939,7.407064,0.45],["Hadar",210.955856,-60.373035,0.61],["Altair",297.695827,8.868321,0.76],["Aldebaran",68.980163,16.509302,0.87],["Spica",201.298247,-11.161319,0.98],["Antares",247.351915,-26.432003,1.06],["Pollux",116.328958,28.026199,1.16],["Fomalhaut",344.412693,-29.622237,1.17],["Deneb",310.35798,45.280339,1.25],["Mimosa",191.930263,-59.688764,1.25],["Acrux",186.649563,-63.099093,1.33],["Regulus",152.092962,11.967209,1.36],["Adhara",104.656453,-28.972086,1.5],["Gacrux",187.791498,-57.113213,1.59],["Bellatrix",81.282764,6.349703,1.64],["Elnath",81.572971,28.607452,1.65],["Miaplacidus",138.299906,-69.717208,1.67],["Alnilam",84.053389,-1.201919,1.69],["Alnair",332.05827,-46.960974,1.73],["Alnitak",85.189694,-1.942574,1.74],["Alioth",193.50729,55.959823,1.76],["Kaus Australis",276.042993,-34.384616,1.79],["Mirfak",51.080709,49.861179,1.79],["Dubhe",165.931965,61.751035,1.81],["Wezen",107.09785,-26.3932,1.83],["Alkaid",206.885157,49.313267,1.85],["Avior",125.62848,-59.509484,1.86],["Sargas",264.329711,-42.997824,1.86],["Menkalinan",89.882179,44.947433,1.9],["Atria",252.166229,-69.027712,1.91],["Alhena",99.42796,16.39928,1.93],["Peacock",306.411904,-56.73509,1.94],["Castor",113.649428,31.888276,1.98],["Mirzam",95.674939,-17.955919,1.98],["Alphard",141.896847,-8.658602,1.99],["Hamal",31.793357,23.462418,2.01],["Diphda",10.897379,-17.986606,2.04],["Nunki",283.81636,-26.296724,2.05],["Menkent",211.670617,-36.369958,2.06],["Alpheratz",2.096916,29.090431,2.07],["Kochab",222.676357,74.155504,2.07],["Mirach",17.433013,35.620557,2.07],["Saiph",86.93912,-9.669605,2.07],["Rasalhague",263.733627,12.560035,2.08],["Shaula",263.402167,-37.103824,2.08],["Algol",47.042215,40.955648,2.09],["Almach",30.974804,42.329725,2.1],["Polaris",37.954561,89.264109,2.13],["Denebola",177.26491,14.572058,2.14],["Naos",120.896031,-40.003148,2.21],["Alphecca",233.67195,26.714693,2.22],["Mizar",200.981429,54.925362,2.23],["Sadr",305.557091,40.256679,2.23],["Suhail",136.998993,-43.432589,2.23],["Eltanin",269.151541,51.488896,2.24],["Schedar",10.126838,56.537331,2.24],["Mintaka",83.001667,-0.299095,2.25],["Caph",2.294522,59.149781,2.28],["Dschubba",240.083359,-22.62171,2.29],["Merak",165.460319,56.382426,2.34],["Izar",221.246763,27.074207,2.35],["Enif",326.046484,9.875009,2.38],["Phecda",178.457679,53.694758,2.41],["Sabik",257.594529,-15.724907,2.43],["Scheat",345.943572,28.082785,2.44],["Alderamin",319.644885,62.585574,2.45],["Aludra",111.02376,-29.303106,2.45],["Markab",346.190223,15.205267,2.49],["Menkar",45.569885,4.089737,2.54],["Acrab",241.3593,-19.805453,2.56],["Zosma",168.527089,20.523718,2.56],["Gienah",183.951543,-17.541929,2.58],["Algieba",154.993144,19.841489,2.61],["Zubenelgenubi",222.719638,-16.041777,2.75],["Algenib",3.308963,15.183594,2.83],["Alcyone",56.871152,24.105136,2.85],["Acamar",44.565311,-40.304672,2.88],["Cor Caroli",194.006943,38.318376,2.89],["Algorab",187.466063,-16.515431,2.94],["Megrez",183.856503,57.032615,3.32],["Albireo",292.680351,27.959692,3.37],["Adhafera",154.172567,23.417312,3.43],["Achird",12.276213,57.815187,3.46],["Ain",67.154163,19.180435,3.53],["Algedi",304.513566,-12.544852,3.58],["Thuban",211.097291,64.375851,3.67],["Alcor",201.306403,54.987954,3.99],["Acubens",134.621761,11.8577,4.26]];
+const MESSIER = [["M1","Crab Nebula",83.625,22.01667,8.4,"Sn"],["M2","M2",323.375,-0.81667,6.5,"Gc"],["M3","M3",205.55,28.38333,6.2,"Gc"],["M4","M4",245.9,-26.53333,5.6,"Gc"],["M5","M5",229.65,2.08333,5.6,"Gc"],["M6","Butterfly Cluster",265.025,-32.21667,4.2,"Oc"],["M7","Ptolemy's Cluster",268.475,-34.81667,3.3,"Oc"],["M8","Lagoon Nebula",270.95,-24.38333,6.0,"Di"],["M9","M9",259.8,-18.51667,7.7,"Gc"],["M10","M10",254.275,-4.1,6.6,"Gc"],["M11","Wild Duck Cluster",282.775,-6.26667,6.3,"Oc"],["M12","M12",251.8,-1.95,6.7,"Gc"],["M13","Great Hercules Globular",250.425,36.46667,5.8,"Gc"],["M14","M14",264.4,-3.25,7.6,"Gc"],["M15","Great Pegasus Globular",322.5,12.16667,6.2,"Gc"],["M16","Eagle Nebula",274.7,-13.78333,6.4,"Oc"],["M17","Omega Nebula",275.2,-16.18333,7.0,"Di"],["M18","M18",274.975,-17.13333,7.5,"Oc"],["M19","M19",255.65,-26.26667,6.8,"Gc"],["M20","Trifid Nebula",270.65,-23.03333,9.0,"Di"],["M21","M21",271.15,-22.5,6.5,"Oc"],["M22","Sagittarius Cluster",279.1,-23.9,5.1,"Gc"],["M23","M23",269.2,-19.01667,6.9,"Oc"],["M24","Sagittarius Star Cloud",274.225,-18.5,4.6,"MW"],["M25","M25",277.9,-19.25,6.5,"Oc"],["M26","M26",281.3,-9.4,8.0,"Oc"],["M27","Dumbbell Nebula",299.9,22.71667,7.4,"Pl"],["M28","M28",276.125,-24.86667,6.8,"Gc"],["M29","M29",305.975,38.53333,7.1,"Oc"],["M30","M30",325.1,-23.18333,7.2,"Gc"],["M31","Andromeda Galaxy",10.45,41.26667,3.4,"Sp"],["M32","M32",10.7,40.86667,8.1,"El"],["M33","Triangulum Galaxy",23.475,30.65,5.7,"Sp"],["M34","M34",40.5,42.78333,5.5,"Oc"],["M35","M35",92.225,24.33333,5.3,"Oc"],["M36","M36",84.025,34.13333,6.3,"Oc"],["M37","M37",88.1,32.55,6.2,"Oc"],["M38","M38",82.175,35.83333,7.4,"Oc"],["M39","M39",323.05,48.43333,4.6,"Oc"],["M40","Winnecke 4",185.6,58.08333,8.4,"Ds"],["M41","M41",101.75,-20.73333,4.6,"Oc"],["M42","Great Nebula in Orion",83.85,-5.45,4.0,"Di"],["M43","De Mairan's Nebula",83.9,-5.26667,9.0,"Di"],["M44","Beehive Cluster",130.025,19.98333,3.7,"Oc"],["M45","Pleiades",56.75,24.11667,1.6,"Oc"],["M46","M46",115.45,-14.81667,6.0,"Oc"],["M47","M47",114.15,-14.5,5.2,"Oc"],["M48","M48",123.45,-5.8,5.5,"Oc"],["M49","M49",187.45,8.0,8.4,"El"],["M50","M50",105.8,-8.33333,6.3,"Oc"],["M51","Whirlpool Galaxy",202.5,47.18333,8.4,"Sp"],["M52","M52",351.05,61.58333,7.3,"Oc"],["M53","M53",198.225,18.16667,7.6,"Gc"],["M54","M54",283.775,-30.48333,7.6,"Gc"],["M55","M55",295.0,-30.96667,6.3,"Gc"],["M56","M56",289.15,30.18333,8.3,"Gc"],["M57","Ring Nebula",283.4,33.03333,8.8,"Pl"],["M58","M58",189.425,11.81667,9.7,"Ba"],["M59","M59",190.5,11.65,9.6,"El"],["M60","M60",190.925,11.55,8.8,"El"],["M61","M61",185.475,4.46667,9.7,"Sp"],["M62","M62",255.3,-30.11667,6.5,"Gc"],["M63","Sunflower Galaxy",198.95,42.03333,8.6,"Sp"],["M64","Black Eye Galaxy",194.175,21.68333,8.5,"Sp"],["M65","M65",169.725,13.08333,9.3,"Sp"],["M66","M66",170.05,12.98333,8.9,"Sp"],["M67","M67",132.6,11.81667,6.1,"Oc"],["M68","M68",189.875,-26.75,7.8,"Gc"],["M69","M69",277.85,-32.35,7.6,"Gc"],["M70","M70",280.8,-32.3,7.9,"Gc"],["M71","M71",298.45,18.78333,8.2,"Gc"],["M72","M72",313.375,-12.53333,9.3,"Gc"],["M73","M73",314.75,-12.63333,9.0,"As"],["M74","M74",24.175,15.78333,9.4,"Sp"],["M75","M75",301.525,-21.91667,8.5,"Gc"],["M76","Little Dumbbell Nebula",25.6,51.56667,10.1,"Pl"],["M77","M77",40.675,0.03333,8.9,"Sp"],["M78","M78",86.675,0.05,8.3,"Di"],["M79","M79",81.125,-24.55,7.7,"Gc"],["M80","M80",244.25,-22.98333,7.3,"Gc"],["M81","Bode's Galaxy",148.9,69.06667,6.9,"Sp"],["M82","Cigar Galaxy",148.95,69.68333,8.4,"Ir"],["M83","Southern Pinwheel",204.25,-29.86667,7.6,"Sp"],["M84","M84",186.275,12.88333,9.1,"Ln"],["M85","M85",186.375,18.2,9.1,"Ln"],["M86","M86",186.55,12.95,8.9,"Ln"],["M87","M87",187.7,12.4,8.6,"El"],["M88","M88",188.025,14.43333,9.6,"Sp"],["M89","M89",188.925,12.55,9.8,"El"],["M90","M90",189.2,13.16667,9.5,"Sp"],["M91","M91",188.875,14.5,10.2,"Ba"],["M92","M92",259.275,43.13333,6.4,"Gc"],["M93","M93",116.15,-23.86667,6.0,"Oc"],["M94","M94",192.725,41.13333,8.2,"Sp"],["M95","M95",161.0,11.7,9.7,"Ba"],["M96","M96",161.7,11.81667,9.2,"Sp"],["M97","Owl Nebula",168.7,55.01667,9.9,"Pl"],["M98","M98",183.475,14.91667,10.1,"Sp"],["M99","M99",184.725,14.43333,9.9,"Sp"],["M100","M100",185.75,15.83333,9.3,"Sp"],["M101","Pinwheel Galaxy",210.8,54.35,7.9,"Sp"],["M102","M102",226.625,55.76667,9.9,"Ln"],["M103","M103",23.3,60.7,7.4,"Oc"],["M104","Sombrero Galaxy",190.0,-11.61667,8.0,"Sp"],["M105","M105",161.95,12.58333,9.3,"El"],["M106","M106",184.725,47.31667,8.4,"Sp"],["M107","M107",248.125,-13.05,7.9,"Gc"],["M108","M108",167.875,55.66667,10.0,"Sp"],["M109","M109",179.4,53.38333,9.8,"Ba"],["M110","M110",10.1,41.68333,8.5,"El"]];
+
+// ---------- combined searchable catalog ----------
+// entry: {name, ra, dec, mag, kind, id}
+const CATALOG = [];
+for (const [name, ra, dec, mag] of STARS) CATALOG.push({name, ra, dec, mag, kind:'star'});
+for (const [id, name, ra, dec, mag, type] of MESSIER) {
+  const label = name === id ? id : `${id} — ${name}`;
+  CATALOG.push({name: label, searchName: id + ' ' + name, ra, dec, mag, kind:'dso', id, type});
+}
+
+function searchCatalog(q, limit=8){
+  q = q.trim().toLowerCase();
+  if (!q) return [];
+  const scored = [];
+  for (const e of CATALOG){
+    const hay = (e.searchName || e.name).toLowerCase();
+    if (hay.includes(q)) scored.push(e);
+  }
+  scored.sort((a,b)=> a.mag - b.mag);
+  return scored.slice(0, limit);
+}
+
+// ---------- astro math ----------
+const D2R = Math.PI/180, R2D = 180/Math.PI;
+
+// gnomonic (tangent-plane) forward projection: RA/Dec (deg) around tangent point -> x,y (radians)
+function gnomonicFwd(ra, dec, ra0, dec0){
+  const raR=ra*D2R, decR=dec*D2R, ra0R=ra0*D2R, dec0R=dec0*D2R;
+  const cosc = Math.sin(dec0R)*Math.sin(decR) + Math.cos(dec0R)*Math.cos(decR)*Math.cos(raR-ra0R);
+  const x = Math.cos(decR)*Math.sin(raR-ra0R)/cosc;
+  const y = (Math.cos(dec0R)*Math.sin(decR) - Math.sin(dec0R)*Math.cos(decR)*Math.cos(raR-ra0R))/cosc;
+  return [x,y];
+}
+// inverse gnomonic: x,y (radians) around tangent point -> RA/Dec (deg)
+function gnomonicInv(x, y, ra0, dec0){
+  const ra0R=ra0*D2R, dec0R=dec0*D2R;
+  const rho = Math.sqrt(x*x+y*y);
+  if (rho < 1e-12) return [ra0, dec0];
+  const c = Math.atan(rho);
+  const sinc=Math.sin(c), cosc=Math.cos(c);
+  const decR = Math.asin(cosc*Math.sin(dec0R) + (y*sinc*Math.cos(dec0R))/rho);
+  const raR = ra0R + Math.atan2(x*sinc, rho*Math.cos(dec0R)*cosc - y*Math.sin(dec0R)*sinc);
+  return [((raR*R2D)+360)%360, decR*R2D];
+}
+// great-circle angular separation in degrees
+function angSep(ra1,dec1,ra2,dec2){
+  const r1=ra1*D2R, d1=dec1*D2R, r2=ra2*D2R, d2=dec2*D2R;
+  const cosd = Math.sin(d1)*Math.sin(d2) + Math.cos(d1)*Math.cos(d2)*Math.cos(r1-r2);
+  return Math.acos(Math.max(-1,Math.min(1,cosd)))*R2D;
+}
+
+// ---------- similarity transform: tangent-plane (X,Y) <-> pixel (u,v) ----------
+// pixel = [[a,-b],[b,a]] * [X,Y] + [tx,ty]
+let transform = null; // {a,b,tx,ty, ra0, dec0}
+let refPoints = []; // [{px,py, entry}]
+
+function solveTransform(){
+  if (refPoints.length < 2) return;
+  const ra0 = refPoints[0].entry.ra, dec0 = refPoints[0].entry.dec;
+  const [X1,Y1] = gnomonicFwd(refPoints[0].entry.ra, refPoints[0].entry.dec, ra0, dec0);
+  const [X2,Y2] = gnomonicFwd(refPoints[1].entry.ra, refPoints[1].entry.dec, ra0, dec0);
+  const u1=refPoints[0].px, v1=refPoints[0].py, u2=refPoints[1].px, v2=refPoints[1].py;
+  const dX=X2-X1, dY=Y2-Y1, du=u2-u1, dv=v2-v1;
+  const det = dX*dX+dY*dY;
+  if (det < 1e-18) return; // degenerate, points too close together in the sky
+  const a = (du*dX + dv*dY)/det;
+  const b = (dv*dX - du*dY)/det;
+  const tx = u1 - a*X1 + b*Y1;
+  const ty = v1 - b*X1 - a*Y1;
+  transform = {a,b,tx,ty,ra0,dec0};
+  updateCalibUI(true);
+}
+
+function skyToPixel(ra, dec){
+  if (!transform) return null;
+  const {a,b,tx,ty,ra0,dec0} = transform;
+  const [X,Y] = gnomonicFwd(ra,dec,ra0,dec0);
+  return [a*X - b*Y + tx, b*X + a*Y + ty];
+}
+function pixelToSky(u,v){
+  if (!transform) return null;
+  const {a,b,tx,ty,ra0,dec0} = transform;
+  const det = a*a+b*b;
+  const X = (a*(u-tx) + b*(v-ty))/det;
+  const Y = (-b*(u-tx) + a*(v-ty))/det;
+  return gnomonicInv(X,Y,ra0,dec0);
+}
+
+// ---------- camera + canvas ----------
+const video = document.getElementById('cam');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+let vw=0, vh=0;
+
+async function startCamera(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
+      audio:false
+    });
+    video.srcObject = stream;
+    await video.play();
+    vw = video.videoWidth; vh = video.videoHeight;
+    tryBoostExposure(stream);
+    resizeCanvas();
+    document.getElementById('startScreen').style.display = 'none';
+    requestAnimationFrame(drawLoop);
+    setInterval(detectStars, 260);
+  }catch(err){
+    document.getElementById('startErr').style.display='block';
+    document.getElementById('startErr').textContent =
+      'Camera error: ' + err.message + ' (needs HTTPS + camera permission)';
+  }
+}
+document.getElementById('startBtn').addEventListener('click', startCamera);
+
+// Best-effort: some Android/Chrome camera stacks expose exposure/ISO controls
+// via applyConstraints. Not supported on every device, so this is wrapped
+// defensively and silently does nothing where unsupported.
+async function tryBoostExposure(stream){
+  try{
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const advanced = {};
+    if (caps.exposureMode && caps.exposureMode.includes('manual')) advanced.exposureMode = 'manual';
+    if (caps.exposureTime && caps.exposureTime.max) advanced.exposureTime = caps.exposureTime.max;
+    if (caps.exposureCompensation && caps.exposureCompensation.max)
+      advanced.exposureCompensation = caps.exposureCompensation.max;
+    if (caps.iso && caps.iso.max) advanced.iso = caps.iso.max;
+    if (Object.keys(advanced).length){
+      await track.applyConstraints({advanced:[advanced]});
+    }
+  }catch(e){ /* device doesn't support manual exposure via web API — that's fine,
+                 the digital Brightness boost slider is the fallback */ }
+}
+
+function resizeCanvas(){
+  overlay.width = overlay.clientWidth * devicePixelRatio;
+  overlay.height = overlay.clientHeight * devicePixelRatio;
+}
+window.addEventListener('resize', resizeCanvas);
+
+// map displayed CSS pixel -> underlying video pixel (object-fit:cover)
+function screenToVideoPx(sx, sy){
+  const rect = overlay.getBoundingClientRect();
+  const scale = Math.max(rect.width/vw, rect.height/vh);
+  const dispW = vw*scale, dispH = vh*scale;
+  const offX = (rect.width - dispW)/2, offY = (rect.height - dispH)/2;
+  return [ (sx - offX)/scale, (sy - offY)/scale ];
+}
+function videoToScreenPx(vx, vy){
+  const rect = overlay.getBoundingClientRect();
+  const scale = Math.max(rect.width/vw, rect.height/vh);
+  const dispW = vw*scale, dispH = vh*scale;
+  const offX = (rect.width - dispW)/2, offY = (rect.height - dispH)/2;
+  return [ vx*scale+offX, vy*scale+offY ];
+}
+
+// ---------- star blob detection ----------
+const DET_W = 240, DET_H = 180;
+const detCanvas = document.createElement('canvas');
+detCanvas.width = DET_W; detCanvas.height = DET_H;
+const detCtx = detCanvas.getContext('2d', {willReadFrequently:true});
+let blobs = []; // [{x,y (video px), brightness}]
+let threshold = 80;
+let gain = 3.0;
+
+document.getElementById('threshSlider').addEventListener('input', e=>{
+  threshold = parseInt(e.target.value);
+  document.getElementById('threshVal').textContent = threshold;
+});
+document.getElementById('gainSlider').addEventListener('input', e=>{
+  gain = parseFloat(e.target.value);
+  document.getElementById('gainVal').textContent = gain.toFixed(1)+'×';
+  video.style.filter = `brightness(${gain}) contrast(1.15)`;
+});
+
+function detectStars(){
+  if (!vw) return;
+  detCtx.drawImage(video, 0,0, DET_W, DET_H);
+  let data;
+  try{ data = detCtx.getImageData(0,0,DET_W,DET_H).data; } catch(e){ return; }
+  const visited = new Uint8Array(DET_W*DET_H);
+  const found = [];
+  for (let y=0;y<DET_H;y++){
+    for (let x=0;x<DET_W;x++){
+      const idx = y*DET_W+x;
+      if (visited[idx]) continue;
+      const p = idx*4;
+      const lum = Math.min(255,(0.299*data[p]+0.587*data[p+1]+0.114*data[p+2])*gain);
+      if (lum < threshold) { visited[idx]=1; continue; }
+      // flood fill this bright blob
+      const stack=[idx]; visited[idx]=1;
+      let sumX=0,sumY=0,sumW=0,count=0;
+      while(stack.length && count < 400){
+        const cur = stack.pop();
+        const cy=(cur/DET_W)|0, cx=cur%DET_W;
+        const cp=cur*4;
+        const clum = Math.min(255,(0.299*data[cp]+0.587*data[cp+1]+0.114*data[cp+2])*gain);
+        sumX+=cx*clum; sumY+=cy*clum; sumW+=clum; count++;
+        const neighbors=[[cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]];
+        for (const [nx,ny] of neighbors){
+          if (nx<0||ny<0||nx>=DET_W||ny>=DET_H) continue;
+          const nidx=ny*DET_W+nx;
+          if (visited[nidx]) continue;
+          const np=nidx*4;
+          const nlum=Math.min(255,(0.299*data[np]+0.587*data[np+1]+0.114*data[np+2])*gain);
+          if (nlum>=threshold){ visited[nidx]=1; stack.push(nidx); }
+          else visited[nidx]=1;
+        }
+      }
+      if (count>=1 && count<=60 && sumW>0){
+        found.push({ x: (sumX/sumW)*(vw/DET_W), y:(sumY/sumW)*(vh/DET_H), brightness: sumW/count, size:count });
+      }
+    }
+  }
+  found.sort((a,b)=>b.brightness-a.brightness);
+  blobs = found.slice(0,30);
+  document.getElementById('blobCount').textContent = blobs.length;
+}
+
+// ---------- draw loop ----------
+let currentTarget = null; // catalog entry
+let pendingTap = null; // video px waiting for name assignment
+
+function drawLoop(){
+  const W = overlay.clientWidth, H = overlay.clientHeight;
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  ctx.clearRect(0,0,W,H);
+
+  // detected star blobs
+  if (document.getElementById('showBlobs').checked){
+    ctx.strokeStyle = 'rgba(255,75,52,0.55)';
+    ctx.lineWidth = 1.5;
+    for (const b of blobs){
+      const [sx,sy] = videoToScreenPx(b.x,b.y);
+      if (sx<0||sy<0||sx>W||sy>H) continue;
+      ctx.beginPath(); ctx.arc(sx,sy,7,0,2*Math.PI); ctx.stroke();
+    }
+  }
+
+  // reference point markers
+  refPoints.forEach((rp,i)=>{
+    const [sx,sy] = videoToScreenPx(rp.px, rp.py);
+    ctx.strokeStyle = '#ff4b34'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(sx,sy,12,0,2*Math.PI); ctx.stroke();
+    ctx.fillStyle = '#ff4b34'; ctx.font='11px monospace';
+    ctx.fillText((i+1)+' '+rp.entry.name.split(' — ')[0], sx+16, sy+4);
+  });
+
+  // pending tap awaiting a name
+  if (pendingTap){
+    const [sx,sy] = videoToScreenPx(pendingTap.x, pendingTap.y);
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(sx,sy,14,0,2*Math.PI); ctx.stroke();
+  }
+
+  // center reticle
+  drawReticle(W/2, H/2);
+
+  // push-to guidance
+  if (transform && currentTarget){
+    drawPushTo(W,H);
+  }
+
+  // center RA/Dec readout
+  if (transform){
+    const [vx,vy] = screenToVideoPx(W/2,H/2);
+    const [ra,dec] = pixelToSky(vx,vy);
+    document.getElementById('centerVal').textContent = fmtRA(ra)+' '+fmtDec(dec);
+  }
+
+  requestAnimationFrame(drawLoop);
+}
+
+function drawReticle(cx,cy){
+  ctx.strokeStyle = 'rgba(255,75,52,0.9)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx,cy,26,0,2*Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,3,0,2*Math.PI); ctx.stroke();
+  for (const ang of [0,90,180,270]){
+    const r1=32, r2=44;
+    const x1=cx+r1*Math.cos(ang*D2R), y1=cy+r1*Math.sin(ang*D2R);
+    const x2=cx+r2*Math.cos(ang*D2R), y2=cy+r2*Math.sin(ang*D2R);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+}
+
+function drawPushTo(W,H){
+  const [vx,vy] = screenToVideoPx(W/2,H/2);
+  const [cra,cdec] = pixelToSky(vx,vy);
+  const sep = angSep(cra,cdec,currentTarget.ra,currentTarget.dec);
+
+  const [tu,tv] = skyToPixel(currentTarget.ra, currentTarget.dec);
+  const [sx,sy] = videoToScreenPx(tu,tv);
+  const cx=W/2, cy=H/2;
+
+  const onscreen = sx>=0 && sy>=0 && sx<=W && sy<=H;
+
+  ctx.strokeStyle = '#ff4b34'; ctx.fillStyle='#ff4b34';
+  if (onscreen && sep < 60){
+    // draw crosshair marker on target
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(sx-14,sy); ctx.lineTo(sx+14,sy);
+    ctx.moveTo(sx,sy-14); ctx.lineTo(sx,sy+14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx,sy,18,0,2*Math.PI); ctx.stroke();
+  } else {
+    // arrow at edge pointing toward target direction (screen-space)
+    const dx = sx-cx, dy = sy-cy;
+    const ang = Math.atan2(dy,dx);
+    const R = Math.min(W,H)*0.38;
+    const ax = cx + R*Math.cos(ang), ay = cy + R*Math.sin(ang);
+    ctx.save();
+    ctx.translate(ax,ay); ctx.rotate(ang);
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(-14,-10); ctx.lineTo(10,0); ctx.lineTo(-14,10);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // distance + direction text
+  document.getElementById('targetSummary').style.display='block';
+  const dirWord = onscreen && sep<60 ? 'In frame' : compassWord(sx-cx, sy-cy);
+  document.querySelector('#targetSummary .big') && (document.querySelector('#targetSummary .big').textContent =
+    sep.toFixed(1)+'°');
+  document.querySelector('#targetSummary .dir') && (document.querySelector('#targetSummary .dir').textContent =
+    dirWord + ' — ' + currentTarget.name);
+}
+
+function compassWord(dx,dy){
+  const ang = ((Math.atan2(dy,dx)*R2D)+360)%360; // 0=right,90=down(screen),180=left,270=up
+  const dirs = ['right','down-right','down','down-left','left','up-left','up','up-right'];
+  const idx = Math.round(ang/45)%8;
+  return 'swing ' + dirs[idx];
+}
+
+function fmtRA(deg){
+  const h = deg/15; const hh=Math.floor(h); const mm=Math.floor((h-hh)*60);
+  return `${String(hh).padStart(2,'0')}h${String(mm).padStart(2,'0')}m`;
+}
+function fmtDec(deg){
+  const sign = deg<0?'-':'+'; const a=Math.abs(deg);
+  const dd=Math.floor(a); const mm=Math.floor((a-dd)*60);
+  return `${sign}${String(dd).padStart(2,'0')}°${String(mm).padStart(2,'0')}′`;
+}
+
+function updateCalibUI(ok){
+  const el = document.getElementById('calibState');
+  el.className = ok ? 'ok' : 'no';
+  document.getElementById('calibVal').textContent = ok ? 'Aligned' : 'Not aligned';
+}
+
+// ---------- tap handling on overlay ----------
+overlay.addEventListener('click', (e)=>{
+  const activeTab = document.querySelector('.tabBtn.active').dataset.tab;
+  if (activeTab !== 'align') return;
+  if (refPoints.length >= 2) return;
+  const rect = overlay.getBoundingClientRect();
+  const sx = e.clientX-rect.left, sy = e.clientY-rect.top;
+  let [vx,vy] = screenToVideoPx(sx,sy);
+  // snap to nearest bright blob within ~30 video px
+  let best=null, bestD=30*(vw/overlay.clientWidth);
+  for (const b of blobs){
+    const d = Math.hypot(b.x-vx, b.y-vy);
+    if (d<bestD){ bestD=d; best=b; }
+  }
+  if (best){ vx=best.x; vy=best.y; }
+  pendingTap = {x:vx,y:vy};
+  document.getElementById('starSearch').style.display='block';
+  document.getElementById('starSearch').value='';
+  document.getElementById('starSearch').focus();
+  renderStarResults('');
+});
+
+// ---------- align tab: name assignment ----------
+const starSearch = document.getElementById('starSearch');
+starSearch.addEventListener('input', e=> renderStarResults(e.target.value));
+
+function renderStarResults(q){
+  const list = document.getElementById('starResults');
+  list.innerHTML='';
+  if (!pendingTap) return;
+  const results = q.trim() ? searchCatalog(q, 8) : [];
+  for (const r of results){
+    const div = document.createElement('div');
+    div.className='resultItem';
+    div.innerHTML = `<span>${r.name}</span><span class="sub">mag ${r.mag}</span>`;
+    div.addEventListener('click', ()=>{
+      refPoints.push({px:pendingTap.x, py:pendingTap.y, entry:r});
+      pendingTap = null;
+      starSearch.style.display='none';
+      list.innerHTML='';
+      renderAlignPoints();
+      if (refPoints.length===2) solveTransform();
+    });
+    list.appendChild(div);
+  }
+}
+
+function renderAlignPoints(){
+  const el = document.getElementById('alignPoints');
+  el.innerHTML='';
+  refPoints.forEach((rp,i)=>{
+    const row = document.createElement('div');
+    row.className='row';
+    row.innerHTML = `<span class="pointBadge">${i+1}</span><span>${rp.entry.name}</span>`;
+    el.appendChild(row);
+  });
+  document.getElementById('alignHint').textContent = refPoints.length===0
+    ? 'Tap a bright star in the live view, then tell us which one it is. Repeat for a second star.'
+    : refPoints.length===1
+      ? 'Good — now tap a second, different star to complete the calibration.'
+      : 'Calibrated on 2 stars. Recalibrate any time the scope has been pushed to a new area.';
+}
+
+document.getElementById('recalBtn').addEventListener('click', ()=>{
+  refPoints = []; pendingTap=null; transform=null;
+  starSearch.style.display='none';
+  document.getElementById('starResults').innerHTML='';
+  renderAlignPoints();
+  updateCalibUI(false);
+});
+
+// ---------- push-to tab ----------
+const targetSearch = document.getElementById('targetSearch');
+targetSearch.addEventListener('input', e=>{
+  const list = document.getElementById('targetResults');
+  list.innerHTML='';
+  const results = searchCatalog(e.target.value, 10);
+  for (const r of results){
+    const div = document.createElement('div');
+    div.className='resultItem';
+    div.innerHTML = `<span>${r.name}</span><span class="sub">mag ${r.mag}</span>`;
+    div.addEventListener('click', ()=>{
+      currentTarget = r;
+      targetSearch.value = r.name;
+      list.innerHTML='';
+      document.getElementById('targetSummary').innerHTML =
+        `<div class="big">—</div><div class="dir">Waiting for alignment…</div>`;
+    });
+    list.appendChild(div);
+  }
+});
+
+// ---------- tabs ----------
+document.querySelectorAll('.tabBtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tabBtn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
+  });
+});
+
+renderAlignPoints();
+</script>
+</body>
+</html>
