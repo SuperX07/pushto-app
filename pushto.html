@@ -24,7 +24,7 @@
 
   /* ---------- camera + overlay ---------- */
   #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    filter: brightness(3) contrast(1.15);}
+    filter: brightness(6) contrast(1.15);}
   #overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none;}
 
   #startScreen{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -149,25 +149,24 @@
     </div>
 
     <div class="panel" id="panel-detect">
-      <div class="settingRow"><span>Brightness boost</span><span id="gainVal">3.0×</span></div>
-      <input type="range" id="gainSlider" min="1" max="10" step="0.5" value="3">
+      <div class="settingRow"><span>Peak brightness this frame</span><span id="peakVal">0 / 255</span></div>
+      <p class="hint" style="margin:2px 0 12px;">This is the single brightest point the camera
+        sees right now, after boost. Point at the Moon or a bright star — if this number stays
+        near 0 even at max boost, the camera isn't gathering enough light through the eyepiece
+        (a lower-power/wider eyepiece passes more light). If it climbs but stars still aren't
+        detected, raise Sensitivity below.</p>
+      <div class="settingRow"><span>Brightness boost</span><span id="gainVal">6.0×</span></div>
+      <input type="range" id="gainSlider" min="1" max="25" step="0.5" value="6">
       <p class="hint" style="margin:4px 0 12px;">Phone cameras auto-expose for daylight, so a
         live view of the night sky often looks solid black even when stars are there. Raise
-        this until you can actually see stars on screen — it digitally amplifies the feed
-        (adds visible noise/grain at high values, that's normal).</p>
-      <div class="settingRow"><span>Detection sensitivity</span><span id="threshVal">80</span></div>
-      <input type="range" id="threshSlider" min="30" max="250" value="80">
+        this until Peak brightness above climbs off zero (adds visible grain, that's normal).</p>
+      <div class="settingRow"><span>Sensitivity</span><span id="threshVal">7</span></div>
+      <input type="range" id="threshSlider" min="1" max="10" step="1" value="7">
       <div class="settingRow" style="margin-top:10px;"><span>Show detected stars</span>
         <input type="checkbox" id="showBlobs" checked></div>
       <div class="settingRow"><span>Detected this frame</span><span id="blobCount">0</span></div>
-      <p class="hint" style="margin-top:12px;">Lower sensitivity picks up more (fainter, noisier)
-        points; raise it if the view is cluttered with false detections. If nothing is detected
-        at all, raise Brightness boost first — sensitivity can't find stars the camera isn't
-        capturing.</p>
-      <p class="hint" id="sanityCheck" style="margin-top:12px;color:var(--red-mid);">Quick test:
-        point at the Moon or brightest star you can find first — if that doesn't show up even
-        near max boost, the camera itself isn't gathering enough light through the eyepiece
-        (try a lower-power/wider eyepiece, which passes more light).</p>
+      <p class="hint" style="margin-top:12px;">Higher sensitivity picks up more (fainter,
+        noisier) points; lower it if the view is cluttered with false detections.</p>
     </div>
   </div>
 
@@ -273,7 +272,7 @@ let vw=0, vh=0;
 async function startCamera(){
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:640}, height:{ideal:480} },
       audio:false
     });
     video.srcObject = stream;
@@ -283,7 +282,7 @@ async function startCamera(){
     resizeCanvas();
     document.getElementById('startScreen').style.display = 'none';
     requestAnimationFrame(drawLoop);
-    setInterval(detectStars, 260);
+    setInterval(detectStars, 450);
   }catch(err){
     document.getElementById('startErr').style.display='block';
     document.getElementById('startErr').textContent =
@@ -312,9 +311,10 @@ async function tryBoostExposure(stream){
                  the digital Brightness boost slider is the fallback */ }
 }
 
+const DPR = Math.min(devicePixelRatio || 1, 1.5);
 function resizeCanvas(){
-  overlay.width = overlay.clientWidth * devicePixelRatio;
-  overlay.height = overlay.clientHeight * devicePixelRatio;
+  overlay.width = overlay.clientWidth * DPR;
+  overlay.height = overlay.clientHeight * DPR;
 }
 window.addEventListener('resize', resizeCanvas);
 
@@ -340,12 +340,20 @@ const detCanvas = document.createElement('canvas');
 detCanvas.width = DET_W; detCanvas.height = DET_H;
 const detCtx = detCanvas.getContext('2d', {willReadFrequently:true});
 let blobs = []; // [{x,y (video px), brightness}]
-let threshold = 80;
-let gain = 3.0;
+let sensitivity = 7; // 1 (least sensitive) .. 10 (most sensitive), user-facing
+let threshold = sensToThreshold(sensitivity); // internal luminance cutoff, 0-255
+let gain = 6.0;
+let peakBrightness = 0;
+
+function sensToThreshold(s){
+  // sensitivity 1 -> threshold 230 (strict), sensitivity 10 -> threshold 15 (very loose)
+  return Math.round(230 - (s-1)*(215/9));
+}
 
 document.getElementById('threshSlider').addEventListener('input', e=>{
-  threshold = parseInt(e.target.value);
-  document.getElementById('threshVal').textContent = threshold;
+  sensitivity = parseInt(e.target.value);
+  threshold = sensToThreshold(sensitivity);
+  document.getElementById('threshVal').textContent = sensitivity;
 });
 document.getElementById('gainSlider').addEventListener('input', e=>{
   gain = parseFloat(e.target.value);
@@ -360,12 +368,14 @@ function detectStars(){
   try{ data = detCtx.getImageData(0,0,DET_W,DET_H).data; } catch(e){ return; }
   const visited = new Uint8Array(DET_W*DET_H);
   const found = [];
+  let peak = 0;
   for (let y=0;y<DET_H;y++){
     for (let x=0;x<DET_W;x++){
       const idx = y*DET_W+x;
       if (visited[idx]) continue;
       const p = idx*4;
       const lum = Math.min(255,(0.299*data[p]+0.587*data[p+1]+0.114*data[p+2])*gain);
+      if (lum > peak) peak = lum;
       if (lum < threshold) { visited[idx]=1; continue; }
       // flood fill this bright blob
       const stack=[idx]; visited[idx]=1;
@@ -383,6 +393,7 @@ function detectStars(){
           if (visited[nidx]) continue;
           const np=nidx*4;
           const nlum=Math.min(255,(0.299*data[np]+0.587*data[np+1]+0.114*data[np+2])*gain);
+          if (nlum > peak) peak = nlum;
           if (nlum>=threshold){ visited[nidx]=1; stack.push(nidx); }
           else visited[nidx]=1;
         }
@@ -395,6 +406,7 @@ function detectStars(){
   found.sort((a,b)=>b.brightness-a.brightness);
   blobs = found.slice(0,30);
   document.getElementById('blobCount').textContent = blobs.length;
+  document.getElementById('peakVal').textContent = Math.round(peak) + ' / 255';
 }
 
 // ---------- draw loop ----------
@@ -403,7 +415,7 @@ let pendingTap = null; // video px waiting for name assignment
 
 function drawLoop(){
   const W = overlay.clientWidth, H = overlay.clientHeight;
-  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
   ctx.clearRect(0,0,W,H);
 
   // detected star blobs
