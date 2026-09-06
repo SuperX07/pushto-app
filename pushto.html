@@ -281,8 +281,8 @@ async function startCamera(){
     tryBoostExposure(stream);
     resizeCanvas();
     document.getElementById('startScreen').style.display = 'none';
-    requestAnimationFrame(drawLoop);
-    setInterval(detectStars, 450);
+    requestAnimationFrame(throttledDrawLoop);
+    setInterval(detectStars, 600);
   }catch(err){
     document.getElementById('startErr').style.display='block';
     document.getElementById('startErr').textContent =
@@ -311,7 +311,7 @@ async function tryBoostExposure(stream){
                  the digital Brightness boost slider is the fallback */ }
 }
 
-const DPR = Math.min(devicePixelRatio || 1, 1.5);
+const DPR = Math.min(devicePixelRatio || 1, 1);
 function resizeCanvas(){
   overlay.width = overlay.clientWidth * DPR;
   overlay.height = overlay.clientHeight * DPR;
@@ -335,7 +335,7 @@ function videoToScreenPx(vx, vy){
 }
 
 // ---------- star blob detection ----------
-const DET_W = 240, DET_H = 180;
+const DET_W = 160, DET_H = 120;
 const detCanvas = document.createElement('canvas');
 detCanvas.width = DET_W; detCanvas.height = DET_H;
 const detCtx = detCanvas.getContext('2d', {willReadFrequently:true});
@@ -460,7 +460,14 @@ function drawLoop(){
     document.getElementById('centerVal').textContent = fmtRA(ra)+' '+fmtDec(dec);
   }
 
-  requestAnimationFrame(drawLoop);
+  requestAnimationFrame(throttledDrawLoop);
+}
+
+let lastDrawTime = 0;
+function throttledDrawLoop(ts){
+  if (ts - lastDrawTime < 50){ requestAnimationFrame(throttledDrawLoop); return; } // ~20fps cap
+  lastDrawTime = ts;
+  drawLoop();
 }
 
 function drawReticle(cx,cy){
